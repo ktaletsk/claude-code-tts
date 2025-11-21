@@ -1,0 +1,23 @@
+[project]
+name = "claude-code-tts"
+version = "0.1.0"
+description = "Kokoro TTS Hook for Claude Code"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "mistune>=3.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.0.0",
+    "pytest>=8.0.0",
+    "ruff>=0.8.0",
+]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]

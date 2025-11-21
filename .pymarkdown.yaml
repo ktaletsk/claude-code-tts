@@ -1,0 +1,7 @@
+plugins:
+  # Disable line length - modern practice doesn't enforce 80-char limits for prose
+  md013:
+    enabled: false
+  # Disable emphasis-as-heading - sometimes italic text is intentional
+  md036:
+    enabled: false

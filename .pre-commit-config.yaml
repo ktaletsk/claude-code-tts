@@ -1,0 +1,18 @@
+repos:
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/jackdewinter/pymarkdown
+    rev: v0.9.33
+    hooks:
+      - id: pymarkdown
+        args: [--config=.pymarkdown.yaml, scan]

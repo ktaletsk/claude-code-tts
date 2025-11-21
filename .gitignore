@@ -1,0 +1,59 @@
+# Local Claude Code settings
+.claude/settings.local.json
+.claude/settings.json
+
+# Hook logs and temporary files
+/tmp/kokoro-hook.log
+/tmp/tts-*.log
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv/
+.python-version
+
+# uv
+uv.lock
+
+# Test and scratch files
+test.txt
+scratch.*
+notes.txt
+TODO.txt
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Audio output files (if generating test audio)
+*.wav
+*.mp3
+test_audio/
+
+# Model files (large binary files)
+*.onnx
+*.bin
+
+# Local development scripts
+sync.sh
