@@ -241,6 +241,12 @@ if [ -n "$claude_response" ]; then
 
   echo "[$(date)] Final response for TTS (length: ${#claude_response})" >> /tmp/kokoro-hook.log
 
+  # Kill any existing TTS processes to prevent overlapping audio
+  # This ensures the final response "wins" over any PreToolUse audio still playing
+  if pkill -9 kokoro-tts 2>/dev/null; then
+    echo "[$(date)] Killed existing kokoro-tts process" >> /tmp/kokoro-hook.log
+  fi
+
   # Save response to temp file to avoid pipe blocking issues
   echo "$claude_response" > /tmp/kokoro-input.txt
 
@@ -405,6 +411,12 @@ if [ -n "$claude_response" ] && [ ${#claude_response} -gt 10 ]; then
 
   # Save response to temp file
   echo "$claude_response" > /tmp/kokoro-pretool-input.txt
+
+  # Kill any existing TTS processes to prevent overlapping audio
+  # This ensures new narration doesn't overlap with previous TTS still playing
+  if pkill -9 kokoro-tts 2>/dev/null; then
+    echo "[$(date)] Killed existing kokoro-tts process" >> /tmp/kokoro-hook.log
+  fi
 
   # Run kokoro-tts in a fully detached subshell
   (kokoro-tts /tmp/kokoro-pretool-input.txt --voice af_sky --stream --model "MODEL_PATH_PLACEHOLDER/kokoro-v1.0.onnx" --voices "MODEL_PATH_PLACEHOLDER/voices-v1.0.bin" >>/tmp/kokoro-hook.log 2>&1 &)
