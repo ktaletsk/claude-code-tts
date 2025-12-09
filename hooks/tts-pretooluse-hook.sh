@@ -121,6 +121,12 @@ if [ -n "$claude_response" ] && [ ${#claude_response} -gt 10 ]; then
   # Save response to temp file
   echo "$claude_response" > /tmp/kokoro-pretool-input.txt
 
+  # Kill any existing TTS processes to prevent overlapping audio
+  # This ensures new narration doesn't overlap with previous TTS still playing
+  if pkill -9 kokoro-tts 2>/dev/null; then
+    echo "[$(date)] Killed existing kokoro-tts process" >> /tmp/kokoro-hook.log
+  fi
+
   # Run kokoro-tts in a fully detached subshell
   (kokoro-tts /tmp/kokoro-pretool-input.txt --voice "$VOICE" --stream --model "$HOME/.local/share/kokoro-tts/kokoro-v1.0.onnx" --voices "$HOME/.local/share/kokoro-tts/voices-v1.0.bin" >>/tmp/kokoro-hook.log 2>&1 &)
 else
