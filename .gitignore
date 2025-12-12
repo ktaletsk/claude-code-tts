@@ -1,6 +1,7 @@
 # Local Claude Code settings
 .claude/settings.local.json
 .claude/settings.json
+CLAUDE.md
 
 # Hook logs and temporary files
 /tmp/kokoro-hook.log
