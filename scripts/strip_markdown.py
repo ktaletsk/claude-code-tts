@@ -101,8 +101,11 @@ def strip_markdown(text: str) -> str:
     md = mistune.create_markdown(renderer=renderer, plugins=[strikethrough_plugin])
     result = md(text)
 
-    # Post-process: remove leftover brackets and backticks
-    result = re.sub(r"[`\(\)\[\]]", "", result)
+    # Post-process: remove markdown artifacts but preserve legitimate content
+    # Remove backticks (always markdown artifacts)
+    result = re.sub(r"`", "", result)
+    # Remove empty brackets/parens (markdown link/image remnants)
+    result = re.sub(r"\[\]|\(\)", "", result)
 
     # Post-process: normalize whitespace
     result = re.sub(r"\s+", " ", result)
