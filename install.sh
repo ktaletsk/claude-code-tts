@@ -18,6 +18,16 @@ NC='\033[0m' # No Color
 # Get the directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+# Cross-platform sed in-place editing
+# macOS uses BSD sed which requires -i '' whereas GNU sed uses -i without argument
+sed_in_place() {
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    sed -i '' "$@"
+  else
+    sed -i "$@"
+  fi
+}
+
 # Check prerequisites
 echo "Checking prerequisites..."
 
@@ -153,319 +163,29 @@ echo ""
 HOOKS_DIR="$HOME/.claude/hooks"
 mkdir -p "$HOOKS_DIR"
 
-# Create tts-stop-hook.sh
+# Create tts-stop-hook.sh by copying from hooks/ directory (single source of truth)
 echo "Creating TTS playback hook..."
-cat > "$HOOKS_DIR/tts-stop-hook.sh" << 'HOOK_EOF'
-#!/bin/bash
-# Claude Code TTS Hook - Reads Claude's responses using kokoro-tts
-
-# Debug logging
-echo "[$(date)] Kokoro TTS hook triggered" >> /tmp/kokoro-hook.log
-
-# Small delay to avoid race condition where transcript isn't fully written yet
-sleep 1
-
-# Read the hook input JSON from stdin
-input=$(cat)
-
-# Debug: Log the input
-echo "[$(date)] Hook input: $input" >> /tmp/kokoro-hook.log
-
-# Extract the transcript path
-transcript_path=$(echo "$input" | jq -r '.transcript_path')
-
-# Debug: Log the transcript path
-echo "[$(date)] Transcript path: $transcript_path" >> /tmp/kokoro-hook.log
-
-# Expand tilde to home directory if present
-transcript_path="${transcript_path/#\~/$HOME}"
-
-# Check if transcript file exists
-if [ ! -f "$transcript_path" ]; then
-  echo "[$(date)] Transcript file not found: $transcript_path" >> /tmp/kokoro-hook.log
-  exit 0
-fi
-
-# Extract Claude's last response from the transcript
-# Loop through messages in reverse to find text that appears AFTER tool uses completed
-# This prevents reading text that PreToolUse hook already played
-claude_response=$(tac "$transcript_path" | while IFS= read -r line; do
-  message_type=$(echo "$line" | jq -r '.type' 2>/dev/null)
-
-  # Once we see a tool_result, we know tools have been used
-  if [ "$message_type" = "tool_result" ]; then
-    seen_tool_result=1
-  fi
-
-  # Look for assistant text messages
-  if [ "$message_type" = "assistant" ]; then
-    TEXT=$(echo "$line" | jq -r '.message.content[]? | select(.type == "text") | .text' 2>/dev/null | tr '\n' ' ')
-
-    # Only use text if we haven't seen any tool_results yet (meaning this is final response after tools)
-    # OR if we never saw tool_results (meaning no tools were used)
-    if [ -n "$TEXT" ]; then
-      if [ "$seen_tool_result" != "1" ]; then
-        echo "$TEXT"
-        break
-      fi
-    fi
-  fi
-done | head -c 5000)
-
-# Debug: Log what was extracted
-echo "[$(date)] Extracted response: $claude_response" >> /tmp/kokoro-hook.log
-
-# Only proceed if we got a response
-if [ -n "$claude_response" ]; then
-  echo "[$(date)] Sending to kokoro-tts with af_sky voice" >> /tmp/kokoro-hook.log
-  echo "[$(date)] Response length: ${#claude_response}" >> /tmp/kokoro-hook.log
-
-  # Check if response contains TTS_SUMMARY marker
-  if echo "$claude_response" | grep -q "<!-- TTS_SUMMARY"; then
-    # Extract only the TTS_SUMMARY content
-    tts_summary=$(echo "$claude_response" | sed -n 's/.*<!-- TTS_SUMMARY[[:space:]]*\(.*\)[[:space:]]*TTS_SUMMARY -->.*/\1/p')
-
-    if [ -n "$tts_summary" ]; then
-      echo "[$(date)] Found TTS_SUMMARY, using summary content only" >> /tmp/kokoro-hook.log
-      claude_response="$tts_summary"
-    else
-      echo "[$(date)] TTS_SUMMARY marker found but empty, falling back to full response" >> /tmp/kokoro-hook.log
-    fi
-  else
-    echo "[$(date)] No TTS_SUMMARY found, using full response with markdown stripping" >> /tmp/kokoro-hook.log
-
-    # Strip markdown formatting using mistune Python library
-    # __CLAUDE_TTS_PROJECT_DIR__ is replaced with actual path during installation
-    claude_response=$(echo "$claude_response" | uv run --project "__CLAUDE_TTS_PROJECT_DIR__" python scripts/strip_markdown.py 2>/dev/null || echo "$claude_response")
-  fi
-
-  echo "[$(date)] Final response for TTS (length: ${#claude_response})" >> /tmp/kokoro-hook.log
-
-  # Kill any existing TTS processes to prevent overlapping audio
-  # This ensures the final response "wins" over any PreToolUse audio still playing
-  if pkill -9 kokoro-tts 2>/dev/null; then
-    echo "[$(date)] Killed existing kokoro-tts process" >> /tmp/kokoro-hook.log
-  fi
-
-  # Save response to temp file to avoid pipe blocking issues
-  echo "$claude_response" > /tmp/kokoro-input.txt
-
-  # Run kokoro-tts in a fully detached subshell
-  # The subshell pattern (command &) ensures complete detachment
-  (kokoro-tts /tmp/kokoro-input.txt --voice af_sky --stream --model "MODEL_PATH_PLACEHOLDER/kokoro-v1.0.onnx" --voices "MODEL_PATH_PLACEHOLDER/voices-v1.0.bin" >>/tmp/kokoro-hook.log 2>&1 &)
-else
-  echo "[$(date)] No response found" >> /tmp/kokoro-hook.log
-fi
-
-# Exit successfully (non-blocking)
-exit 0
-HOOK_EOF
+cp "$SCRIPT_DIR/hooks/tts-stop-hook.sh" "$HOOKS_DIR/tts-stop-hook.sh"
 
 # Replace placeholders with actual paths
-sed -i "s|MODEL_PATH_PLACEHOLDER|$MODEL_DIR|g" "$HOOKS_DIR/tts-stop-hook.sh"
-sed -i "s|__CLAUDE_TTS_PROJECT_DIR__|$SCRIPT_DIR|g" "$HOOKS_DIR/tts-stop-hook.sh"
+sed_in_place "s|MODEL_PATH_PLACEHOLDER|$MODEL_DIR|g" "$HOOKS_DIR/tts-stop-hook.sh"
+sed_in_place "s|__CLAUDE_TTS_PROJECT_DIR__|$SCRIPT_DIR|g" "$HOOKS_DIR/tts-stop-hook.sh"
 
-# Create tts-interrupt-hook.sh
+# Create tts-interrupt-hook.sh by copying from hooks/ directory (single source of truth)
 echo "Creating TTS interrupt hook..."
-cat > "$HOOKS_DIR/tts-interrupt-hook.sh" << 'HOOK_EOF'
-#!/bin/bash
-# TTS Interrupt Hook - Stops ongoing TTS playback when user submits a new prompt
-# This hook is triggered when the user submits a new message to Claude
+cp "$SCRIPT_DIR/hooks/tts-interrupt-hook.sh" "$HOOKS_DIR/tts-interrupt-hook.sh"
 
-# Debug logging
-echo "[$(date)] TTS Interrupt hook triggered - stopping ongoing TTS playback" >> /tmp/kokoro-hook.log
-
-# Kill all running kokoro-tts processes
-pkill -9 kokoro-tts 2>/dev/null
-
-# Log the result
-if [ $? -eq 0 ]; then
-  echo "[$(date)] Successfully stopped kokoro-tts process" >> /tmp/kokoro-hook.log
-else
-  echo "[$(date)] No kokoro-tts process was running" >> /tmp/kokoro-hook.log
-fi
-
-# Exit successfully (non-blocking)
-exit 0
-HOOK_EOF
-
-# Create tts-pretooluse-hook.sh
+# Create tts-pretooluse-hook.sh by copying from hooks/ directory (single source of truth)
 echo "Creating PreToolUse TTS hook..."
-cat > "$HOOKS_DIR/tts-pretooluse-hook.sh" << 'HOOK_EOF'
-#!/bin/bash
-# Claude Code PreToolUse TTS Hook - Reads text that appears before tool uses
-
-# Debug logging
-echo "[$(date)] PreToolUse TTS hook triggered" >> /tmp/kokoro-hook.log
-
-# Small delay to allow transcript to be fully written
-sleep 0.5
-
-# Read the hook input JSON from stdin
-input=$(cat)
-
-# Debug: Log the input
-echo "[$(date)] PreToolUse hook input: $input" >> /tmp/kokoro-hook.log
-
-# Extract the transcript path and tool_use_id
-transcript_path=$(echo "$input" | jq -r '.transcript_path')
-current_tool_use_id=$(echo "$input" | jq -r '.tool_use_id')
-
-echo "[$(date)] Current tool_use_id: $current_tool_use_id" >> /tmp/kokoro-hook.log
-
-# Expand tilde to home directory if present
-transcript_path="${transcript_path/#\~/$HOME}"
-
-# Check if transcript file exists
-if [ ! -f "$transcript_path" ]; then
-  echo "[$(date)] Transcript file not found: $transcript_path" >> /tmp/kokoro-hook.log
-  exit 0
-fi
-
-# Check if this is the first tool_use in the current message
-# Extract the first tool_use_id from the last assistant message
-first_tool_use_id=$(tac "$transcript_path" | while IFS= read -r line; do
-  if echo "$line" | jq -e '.type == "assistant"' >/dev/null 2>&1; then
-    echo "$line" | jq -r '.message.content[] | select(.type == "tool_use") | .id' 2>/dev/null | head -1
-    break
-  fi
-done)
-
-echo "[$(date)] First tool_use_id in message: $first_tool_use_id" >> /tmp/kokoro-hook.log
-
-# Only proceed if this is the first tool use
-if [ "$current_tool_use_id" != "$first_tool_use_id" ]; then
-  echo "[$(date)] Skipping - not the first tool use in this message" >> /tmp/kokoro-hook.log
-  exit 0
-fi
-
-echo "[$(date)] This is the first tool use - proceeding with TTS" >> /tmp/kokoro-hook.log
-
-# Extract text from assistant messages that appear before the tool use
-# Claude Code splits responses into separate messages for text and tool_use blocks
-# We need to find text from the most recent assistant text message before the first tool use
-claude_response=$(tac "$transcript_path" | while IFS= read -r line; do
-  if echo "$line" | jq -e '.type == "assistant"' >/dev/null 2>&1; then
-    # Check if this message contains the current tool_use_id
-    tool_ids=$(echo "$line" | jq -r '.message.content[] | select(.type == "tool_use") | .id' 2>/dev/null)
-
-    # If we found the message with the first tool use, now look for preceding text
-    if echo "$tool_ids" | grep -q "$current_tool_use_id"; then
-      echo "[$(date)] Found message containing current tool_use_id" >> /tmp/kokoro-hook.log
-      # Mark that we've found the tool use message, now collect text from previous messages
-      found_tool_use=1
-      continue
-    fi
-
-    # If we've found the tool use and this is a text message, extract it
-    if [ "$found_tool_use" = "1" ]; then
-      content_type=$(echo "$line" | jq -r '.message.content[0].type' 2>/dev/null)
-      if [ "$content_type" = "text" ]; then
-        TEXT=$(echo "$line" | jq -r '.message.content[] | select(.type == "text") | .text' 2>/dev/null)
-        if [ -n "$TEXT" ]; then
-          echo "[$(date)] Found text message before tool use" >> /tmp/kokoro-hook.log
-          echo "$TEXT"
-          break
-        fi
-      fi
-    fi
-  fi
-done | head -c 5000)
-
-# Debug: Log what was extracted
-echo "[$(date)] PreToolUse extracted text: $claude_response" >> /tmp/kokoro-hook.log
-
-# Check if response contains TTS_SUMMARY marker
-# If it does, skip playback - let the Stop hook handle TTS_SUMMARY extraction
-if echo "$claude_response" | grep -q "<!-- TTS_SUMMARY"; then
-  echo "[$(date)] Skipping - message contains TTS_SUMMARY, let Stop hook handle it" >> /tmp/kokoro-hook.log
-  exit 0
-fi
-
-# Session-based deduplication: compute hash of the text
-# Hash files are cleared only at SessionEnd, so deduplication lasts entire session
-text_hash=$(echo "$claude_response" | md5sum | awk '{print $1}')
-last_hash_file="/tmp/kokoro-pretool-last-hash.txt"
-last_hash=$(cat "$last_hash_file" 2>/dev/null)
-
-# If we played this exact text in this session, skip (no time limit)
-if [ "$text_hash" = "$last_hash" ]; then
-  echo "[$(date)] Skipping - same text already played in this session" >> /tmp/kokoro-hook.log
-  exit 0
-fi
-
-# Only proceed if we got a response and it's not empty
-if [ -n "$claude_response" ] && [ ${#claude_response} -gt 10 ]; then
-  echo "[$(date)] Sending to kokoro-tts with af_sky voice" >> /tmp/kokoro-hook.log
-  echo "[$(date)] Response length: ${#claude_response}" >> /tmp/kokoro-hook.log
-
-  # Strip markdown formatting using mistune Python library
-  # __CLAUDE_TTS_PROJECT_DIR__ is replaced with actual path during installation
-  claude_response=$(echo "$claude_response" | uv run --project "__CLAUDE_TTS_PROJECT_DIR__" python scripts/strip_markdown.py 2>/dev/null || echo "$claude_response")
-
-  echo "[$(date)] Response after markdown strip (length: ${#claude_response})" >> /tmp/kokoro-hook.log
-
-  # Save the hash for session-based deduplication
-  echo "$text_hash" > "$last_hash_file"
-  echo "[$(date)] Saved text hash for session-based deduplication: $text_hash" >> /tmp/kokoro-hook.log
-
-  # Save response to temp file
-  echo "$claude_response" > /tmp/kokoro-pretool-input.txt
-
-  # Kill any existing TTS processes to prevent overlapping audio
-  # This ensures new narration doesn't overlap with previous TTS still playing
-  if pkill -9 kokoro-tts 2>/dev/null; then
-    echo "[$(date)] Killed existing kokoro-tts process" >> /tmp/kokoro-hook.log
-  fi
-
-  # Run kokoro-tts in a fully detached subshell
-  (kokoro-tts /tmp/kokoro-pretool-input.txt --voice af_sky --stream --model "MODEL_PATH_PLACEHOLDER/kokoro-v1.0.onnx" --voices "MODEL_PATH_PLACEHOLDER/voices-v1.0.bin" >>/tmp/kokoro-hook.log 2>&1 &)
-else
-  echo "[$(date)] No text before tool uses, or text too short (${#claude_response} chars)" >> /tmp/kokoro-hook.log
-fi
-
-# Exit successfully (non-blocking)
-exit 0
-HOOK_EOF
+cp "$SCRIPT_DIR/hooks/tts-pretooluse-hook.sh" "$HOOKS_DIR/tts-pretooluse-hook.sh"
 
 # Replace placeholders with actual paths
-sed -i "s|MODEL_PATH_PLACEHOLDER|$MODEL_DIR|g" "$HOOKS_DIR/tts-pretooluse-hook.sh"
-sed -i "s|__CLAUDE_TTS_PROJECT_DIR__|$SCRIPT_DIR|g" "$HOOKS_DIR/tts-pretooluse-hook.sh"
+sed_in_place "s|MODEL_PATH_PLACEHOLDER|$MODEL_DIR|g" "$HOOKS_DIR/tts-pretooluse-hook.sh"
+sed_in_place "s|__CLAUDE_TTS_PROJECT_DIR__|$SCRIPT_DIR|g" "$HOOKS_DIR/tts-pretooluse-hook.sh"
 
-# Create tts-session-end-hook.sh
+# Create tts-session-end-hook.sh by copying from hooks/ directory (single source of truth)
 echo "Creating SessionEnd TTS hook..."
-cat > "$HOOKS_DIR/tts-session-end-hook.sh" << 'HOOK_EOF'
-#!/bin/bash
-# Claude Code SessionEnd Hook - Cleanup TTS processes and temporary files
-# This hook is triggered when a Claude Code session ends
-
-# Read hook input
-input=$(cat)
-
-# Extract session information
-session_id=$(echo "$input" | jq -r '.session_id')
-reason=$(echo "$input" | jq -r '.reason')
-
-# Log session end
-echo "[$(date)] SessionEnd hook triggered for session $session_id (reason: $reason)" >> /tmp/kokoro-hook.log
-
-# Kill any running kokoro-tts processes
-pkill -9 kokoro-tts 2>/dev/null
-if [ $? -eq 0 ]; then
-  echo "[$(date)] Killed running kokoro-tts processes" >> /tmp/kokoro-hook.log
-fi
-
-# Clean up TTS temporary files
-rm -f /tmp/kokoro-input.txt /tmp/kokoro-pretool-input.txt 2>/dev/null
-
-# Clean up hash tracking files for fresh start in next session
-rm -f /tmp/kokoro-pretool-last-hash.txt /tmp/kokoro-pretool-last-time.txt 2>/dev/null
-
-echo "[$(date)] Session cleanup completed for session $session_id" >> /tmp/kokoro-hook.log
-
-# Exit successfully
-exit 0
-HOOK_EOF
+cp "$SCRIPT_DIR/hooks/tts-session-end-hook.sh" "$HOOKS_DIR/tts-session-end-hook.sh"
 
 # Make hooks executable
 chmod +x "$HOOKS_DIR/tts-stop-hook.sh"
