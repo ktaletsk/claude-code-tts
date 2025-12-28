@@ -197,8 +197,8 @@ If you prefer manual setup instead of using `install.sh`:
    ```json
    {
      "hooks": {
-       "Stop": "~/.claude/hooks/tts-stop-hook.sh",
-       "UserPromptSubmit": "~/.claude/hooks/tts-interrupt-hook.sh"
+       "Stop": [{"hooks": [{"type": "command", "command": "bash ~/.claude/hooks/tts-stop-hook.sh", "timeout": 10}]}],
+       "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "bash ~/.claude/hooks/tts-interrupt-hook.sh", "timeout": 5}]}]
      }
    }
    ```
@@ -206,7 +206,7 @@ If you prefer manual setup instead of using `install.sh`:
 ## Project Structure
 
 ```text
-voice/
+claude-code-tts/
 ├── README.md                      # This file
 ├── LICENSE                        # MIT License
 ├── install.sh                     # Automated setup script

@@ -532,12 +532,12 @@ See [Kokoro VOICES.md](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICE
 The hook truncates responses to 5000 characters. To change this, edit the hook script:
 
 ```bash
-# Find the line with head -c and adjust the value:
+# Find the line with bash substring and adjust the value:
 # Current: 5000 characters
-claude_response=$(... | head -c 5000)
+claude_response="${claude_response:0:5000}"
 
 # Example: Change to 3000 characters
-claude_response=$(... | head -c 3000)
+claude_response="${claude_response:0:3000}"
 ```
 
 ### Disable Streaming (Save to File Instead)
@@ -737,8 +737,8 @@ cp ~/.claude/hooks/tts-stop-hook.sh ~/.claude/hooks/tts-stop-hook.sh.backup
    - **Why it exists**: Prevents extremely long TTS sessions (e.g., 10,000+ character responses could take several minutes to read aloud)
    - **What happens**: If Claude's response exceeds 5000 characters, only the first 5000 characters are sent to TTS
    - **User experience**: Longer responses will appear to "cut off" mid-sentence, even though the full text is visible in Claude Code
-   - **How to adjust**: Edit line 41 in `~/.claude/hooks/tts-stop-hook.sh` and change `head -c 5000` to a different value (e.g., `head -c 10000` for 10,000 characters)
-   - **Remove entirely**: Delete `| head -c 5000` from line 41 to read all responses regardless of length
+   - **How to adjust**: Edit `~/.claude/hooks/tts-stop-hook.sh` and change `${claude_response:0:5000}` to a different value (e.g., `${claude_response:0:10000}` for 10,000 characters)
+   - **Remove entirely**: Change `${claude_response:0:5000}` to just `$claude_response` to read all responses regardless of length
 
 ## Support
 
