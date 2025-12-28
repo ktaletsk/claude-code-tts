@@ -10,6 +10,7 @@ import re
 import sys
 
 import mistune
+from mistune.plugins.formatting import strikethrough as strikethrough_plugin
 
 
 class PlainTextRenderer(mistune.HTMLRenderer):
@@ -66,6 +67,9 @@ class PlainTextRenderer(mistune.HTMLRenderer):
     def inline_html(self, html):
         return ""  # Remove inline HTML tags
 
+    def strikethrough(self, text):
+        return text  # Keep text, remove ~~ markers
+
 
 def strip_markdown(text: str) -> str:
     """Convert markdown to plain text for TTS.
@@ -81,15 +85,19 @@ def strip_markdown(text: str) -> str:
 
     # Pre-process: remove file paths (backtick-wrapped and bare)
     text = re.sub(r"`[~/][^`]+`", "", text)
-    text = re.sub(r"[~/][a-zA-Z0-9_./-]{3,}", "", text)
+    # Bare paths: ~/path or /path (must have / in the path portion)
+    # Handles both ~/foo/bar and /usr/bin patterns
+    text = re.sub(r"(?:^|\s)~/[a-zA-Z0-9_./-]+", " ", text)  # ~/path
+    text = re.sub(r"(?:^|\s)/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_./-]*", " ", text)  # /path/...
 
     # Pre-process: remove tables (pipe-based)
     text = re.sub(r"^\|.*\|$", "", text, flags=re.MULTILINE)
     text = re.sub(r"^\s*\|[-:\s|]+\|\s*$", "", text, flags=re.MULTILINE)
 
     # Parse markdown with custom renderer
+    # Enable strikethrough plugin to handle ~~deleted~~ syntax
     renderer = PlainTextRenderer()
-    md = mistune.create_markdown(renderer=renderer)
+    md = mistune.create_markdown(renderer=renderer, plugins=[strikethrough_plugin])
     result = md(text)
 
     # Post-process: remove leftover brackets and backticks
