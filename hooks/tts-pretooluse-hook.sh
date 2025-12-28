@@ -33,12 +33,14 @@ fi
 
 # Check if this is the first tool_use in the current message
 # Extract the first tool_use_id from the last assistant message
-first_tool_use_id=$(tac "$transcript_path" | while IFS= read -r line; do
+# NOTE: Using process substitution < <(tac ...) instead of pipe to avoid subshell variable scope issues
+first_tool_use_id=""
+while IFS= read -r line; do
   if echo "$line" | jq -e '.type == "assistant"' >/dev/null 2>&1; then
-    echo "$line" | jq -r '.message.content[] | select(.type == "tool_use") | .id' 2>/dev/null | head -1
+    first_tool_use_id=$(echo "$line" | jq -r '.message.content[] | select(.type == "tool_use") | .id' 2>/dev/null | head -1)
     break
   fi
-done)
+done < <(tac "$transcript_path")
 
 echo "[$(date)] First tool_use_id in message: $first_tool_use_id" >> /tmp/kokoro-hook.log
 
@@ -53,7 +55,10 @@ echo "[$(date)] This is the first tool use - proceeding with TTS" >> /tmp/kokoro
 # Extract text from assistant messages that appear before the tool use
 # Claude Code splits responses into separate messages for text and tool_use blocks
 # We need to find text from the most recent assistant text message before the first tool use
-claude_response=$(tac "$transcript_path" | while IFS= read -r line; do
+# NOTE: Using process substitution < <(tac ...) instead of pipe to avoid subshell variable scope issues
+found_tool_use=0
+claude_response=""
+while IFS= read -r line; do
   if echo "$line" | jq -e '.type == "assistant"' >/dev/null 2>&1; then
     # Check if this message contains the current tool_use_id
     tool_ids=$(echo "$line" | jq -r '.message.content[] | select(.type == "tool_use") | .id' 2>/dev/null)
@@ -73,13 +78,15 @@ claude_response=$(tac "$transcript_path" | while IFS= read -r line; do
         TEXT=$(echo "$line" | jq -r '.message.content[] | select(.type == "text") | .text' 2>/dev/null)
         if [ -n "$TEXT" ]; then
           echo "[$(date)] Found text message before tool use" >> /tmp/kokoro-hook.log
-          echo "$TEXT"
+          claude_response="$TEXT"
           break
         fi
       fi
     fi
   fi
-done | head -c 5000)
+done < <(tac "$transcript_path")
+# Truncate to 5000 characters
+claude_response="${claude_response:0:5000}"
 
 # Debug: Log what was extracted
 echo "[$(date)] PreToolUse extracted text: $claude_response" >> /tmp/kokoro-hook.log
@@ -109,8 +116,8 @@ if [ -n "$claude_response" ] && [ ${#claude_response} -gt 10 ]; then
   echo "[$(date)] Response length: ${#claude_response}, stripping markdown via strip_markdown.py" >> /tmp/kokoro-hook.log
 
   # Strip markdown formatting using mistune Python library
-  # Project path is set during installation by install.sh
-  claude_response=$(echo "$claude_response" | uv run --project "__CLAUDE_TTS_PROJECT_DIR__" python scripts/strip_markdown.py 2>>/tmp/kokoro-hook.log || echo "$claude_response")
+  # Full absolute path ensures script works regardless of current working directory
+  claude_response=$(echo "$claude_response" | uv run --project "__CLAUDE_TTS_PROJECT_DIR__" python "__CLAUDE_TTS_PROJECT_DIR__/scripts/strip_markdown.py" 2>>/tmp/kokoro-hook.log || echo "$claude_response")
 
   echo "[$(date)] Response after markdown strip (length: ${#claude_response})" >> /tmp/kokoro-hook.log
 
@@ -118,8 +125,11 @@ if [ -n "$claude_response" ] && [ ${#claude_response} -gt 10 ]; then
   echo "$text_hash" > "$last_hash_file"
   echo "[$(date)] Saved text hash for session-based deduplication: $text_hash" >> /tmp/kokoro-hook.log
 
-  # Save response to temp file
-  echo "$claude_response" > /tmp/kokoro-pretool-input.txt
+  # Save response to secure temp file
+  # Use mktemp with restrictive permissions for security
+  tmpfile=$(mktemp /tmp/kokoro-pretool-input.XXXXXX)
+  chmod 600 "$tmpfile"
+  echo "$claude_response" > "$tmpfile"
 
   # Kill any existing TTS processes to prevent overlapping audio
   # This ensures new narration doesn't overlap with previous TTS still playing
@@ -128,7 +138,7 @@ if [ -n "$claude_response" ] && [ ${#claude_response} -gt 10 ]; then
   fi
 
   # Run kokoro-tts in a fully detached subshell
-  (kokoro-tts /tmp/kokoro-pretool-input.txt --voice "$VOICE" --stream --model "$HOME/.local/share/kokoro-tts/kokoro-v1.0.onnx" --voices "$HOME/.local/share/kokoro-tts/voices-v1.0.bin" >>/tmp/kokoro-hook.log 2>&1 &)
+  (kokoro-tts "$tmpfile" --voice "$VOICE" --stream --model "MODEL_PATH_PLACEHOLDER/kokoro-v1.0.onnx" --voices "MODEL_PATH_PLACEHOLDER/voices-v1.0.bin" >>/tmp/kokoro-hook.log 2>&1 &)
 else
   echo "[$(date)] No text before tool uses, or text too short (${#claude_response} chars)" >> /tmp/kokoro-hook.log
 fi

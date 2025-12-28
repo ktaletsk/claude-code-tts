@@ -34,7 +34,10 @@ fi
 # Extract Claude's last response from the transcript
 # Loop through messages in reverse to find text that appears AFTER tool uses completed
 # This prevents reading text that PreToolUse hook already played
-claude_response=$(tac "$transcript_path" | while IFS= read -r line; do
+# NOTE: Using process substitution < <(tac ...) instead of pipe to avoid subshell variable scope issues
+seen_tool_result=0
+claude_response=""
+while IFS= read -r line; do
   message_type=$(echo "$line" | jq -r '.type' 2>/dev/null)
 
   # Once we see a tool_result, we know tools have been used
@@ -50,12 +53,14 @@ claude_response=$(tac "$transcript_path" | while IFS= read -r line; do
     # OR if we never saw tool_results (meaning no tools were used)
     if [ -n "$TEXT" ]; then
       if [ "$seen_tool_result" != "1" ]; then
-        echo "$TEXT"
+        claude_response="$TEXT"
         break
       fi
     fi
   fi
-done | head -c 5000)
+done < <(tac "$transcript_path")
+# Truncate to 5000 characters
+claude_response="${claude_response:0:5000}"
 
 # Debug: Log what was extracted
 echo "[$(date)] Extracted response: $claude_response" >> /tmp/kokoro-hook.log
@@ -68,11 +73,28 @@ if [ -n "$claude_response" ]; then
   # Check if response contains TTS_SUMMARY marker
   if echo "$claude_response" | grep -q "<!-- TTS_SUMMARY"; then
     # Extract only the TTS_SUMMARY content
-    tts_summary=$(echo "$claude_response" | sed -n 's/.*<!-- TTS_SUMMARY[[:space:]]*\(.*\)[[:space:]]*TTS_SUMMARY -->.*/\1/p')
+    # Note: $claude_response is already flattened to a single line by tr '\n' ' ' earlier
+    # Uses awk with index() to extract text between markers on a single line
+    tts_summary=$(echo "$claude_response" | awk '
+      {
+        start = index($0, "<!-- TTS_SUMMARY")
+        if (start > 0) {
+          rest = substr($0, start + 16)  # 16 = length("<!-- TTS_SUMMARY")
+          end = index(rest, "TTS_SUMMARY -->")
+          if (end > 0) {
+            content = substr(rest, 1, end - 1)
+            gsub(/^[[:space:]]+/, "", content)
+            gsub(/[[:space:]]+$/, "", content)
+            print content
+          }
+        }
+      }
+    ')
 
     if [ -n "$tts_summary" ]; then
       echo "[$(date)] Found TTS_SUMMARY, using summary content only" >> /tmp/kokoro-hook.log
-      claude_response="$tts_summary"
+      # Strip any markdown from TTS_SUMMARY content (e.g., **bold** -> bold)
+      claude_response=$(echo "$tts_summary" | uv run --project "__CLAUDE_TTS_PROJECT_DIR__" python "__CLAUDE_TTS_PROJECT_DIR__/scripts/strip_markdown.py" 2>>/tmp/kokoro-hook.log || echo "$tts_summary")
     else
       echo "[$(date)] TTS_SUMMARY marker found but empty, falling back to full response" >> /tmp/kokoro-hook.log
     fi
@@ -80,8 +102,8 @@ if [ -n "$claude_response" ]; then
     echo "[$(date)] No TTS_SUMMARY found, stripping markdown via strip_markdown.py" >> /tmp/kokoro-hook.log
 
     # Strip markdown formatting using mistune Python library
-    # Project path is set during installation by install.sh
-    claude_response=$(echo "$claude_response" | uv run --project "__CLAUDE_TTS_PROJECT_DIR__" python scripts/strip_markdown.py 2>>/tmp/kokoro-hook.log || echo "$claude_response")
+    # Full absolute path ensures script works regardless of current working directory
+    claude_response=$(echo "$claude_response" | uv run --project "__CLAUDE_TTS_PROJECT_DIR__" python "__CLAUDE_TTS_PROJECT_DIR__/scripts/strip_markdown.py" 2>>/tmp/kokoro-hook.log || echo "$claude_response")
   fi
 
   echo "[$(date)] Final response for TTS (length: ${#claude_response})" >> /tmp/kokoro-hook.log
@@ -92,12 +114,15 @@ if [ -n "$claude_response" ]; then
     echo "[$(date)] Killed existing kokoro-tts process" >> /tmp/kokoro-hook.log
   fi
 
-  # Save response to temp file to avoid pipe blocking issues
-  echo "$claude_response" > /tmp/kokoro-input.txt
+  # Save response to secure temp file to avoid pipe blocking issues
+  # Use mktemp with restrictive permissions for security
+  tmpfile=$(mktemp /tmp/kokoro-input.XXXXXX)
+  chmod 600 "$tmpfile"
+  echo "$claude_response" > "$tmpfile"
 
   # Run kokoro-tts in a fully detached subshell
   # The subshell pattern (command &) ensures complete detachment
-  (kokoro-tts /tmp/kokoro-input.txt --voice "$VOICE" --stream --model "$HOME/.local/share/kokoro-tts/kokoro-v1.0.onnx" --voices "$HOME/.local/share/kokoro-tts/voices-v1.0.bin" >>/tmp/kokoro-hook.log 2>&1 &)
+  (kokoro-tts "$tmpfile" --voice "$VOICE" --stream --model "MODEL_PATH_PLACEHOLDER/kokoro-v1.0.onnx" --voices "MODEL_PATH_PLACEHOLDER/voices-v1.0.bin" >>/tmp/kokoro-hook.log 2>&1 &)
 else
   echo "[$(date)] No response found" >> /tmp/kokoro-hook.log
 fi
