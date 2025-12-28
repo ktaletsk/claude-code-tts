@@ -60,6 +60,12 @@ class PlainTextRenderer(mistune.HTMLRenderer):
     def softbreak(self):
         return " "
 
+    def block_html(self, html):
+        return ""  # Remove raw HTML blocks
+
+    def inline_html(self, html):
+        return ""  # Remove inline HTML tags
+
 
 def strip_markdown(text: str) -> str:
     """Convert markdown to plain text for TTS.
