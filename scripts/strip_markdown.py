@@ -6,6 +6,7 @@ Usage:
     cat file.md | python strip_markdown.py
 """
 
+import html
 import re
 import sys
 
@@ -110,6 +111,9 @@ def strip_markdown(text: str) -> str:
     result = re.sub(r"[\u2714\u2705]", "", result)  # Check marks
     result = re.sub(r"[\u274c\u274e]", "", result)  # X marks
     result = re.sub(r"[\u26a0]", "", result)  # Warning sign
+
+    # Decode HTML entities (e.g., &amp; -> &, &lt; -> <)
+    result = html.unescape(result)
 
     return result.strip()
 
