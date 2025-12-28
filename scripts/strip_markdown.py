@@ -9,6 +9,7 @@ Usage:
 import html
 import re
 import sys
+import unicodedata
 
 import mistune
 from mistune.plugins.formatting import strikethrough as strikethrough_plugin
@@ -110,13 +111,20 @@ def strip_markdown(text: str) -> str:
     # Post-process: normalize whitespace
     result = re.sub(r"\s+", " ", result)
 
-    # Remove emoji patterns (checkmarks, X marks, warning signs)
-    result = re.sub(r"[\u2714\u2705]", "", result)  # Check marks
-    result = re.sub(r"[\u274c\u274e]", "", result)  # X marks
-    result = re.sub(r"[\u26a0]", "", result)  # Warning sign
+    # Remove emoji and symbols that don't read well in TTS
+    # So = Other Symbol (emoji, dingbats, etc.)
+    # Also remove variation selectors (U+FE00-FE0F) that modify emoji presentation
+    result = "".join(
+        c
+        for c in result
+        if unicodedata.category(c) != "So" and not (0xFE00 <= ord(c) <= 0xFE0F)
+    )
 
     # Decode HTML entities (e.g., &amp; -> &, &lt; -> <)
     result = html.unescape(result)
+
+    # Final whitespace cleanup (emoji removal may leave gaps)
+    result = re.sub(r"\s+", " ", result)
 
     return result.strip()
 
