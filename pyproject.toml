@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Kokoro TTS Hook for Claude Code"
 readme = "README.md"
 requires-python = ">=3.10"
-license = "MIT"
+license = "ISC"
 dependencies = [
     "mistune>=3.0.0",
 ]
