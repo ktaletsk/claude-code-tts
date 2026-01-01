@@ -259,7 +259,8 @@ uv run pytest tests/ -v
 
 ## Contributing
 
-Contributions are welcome. Submit issues or pull requests if you have improvements.
+Contributions are welcome. For bugs, issues, or feature requests, please submit a ticket at
+[todo.sr.ht/~cg/claude-code-tts](https://todo.sr.ht/~cg/claude-code-tts).
 
 ## License
 
