@@ -4,6 +4,11 @@
 # Voice configuration - can be set via KOKORO_VOICE env var in ~/.claude/settings.json
 VOICE="${KOKORO_VOICE:-af_sky}"
 
+# Audio ducking configuration - lowers Apple Music volume while TTS plays (like Google Maps in CarPlay)
+# macOS only - uses AppleScript to control Apple Music's internal volume
+AUDIO_DUCK_ENABLED="${AUDIO_DUCK_ENABLED:-true}"
+AUDIO_DUCK_SCRIPT="__CLAUDE_TTS_PROJECT_DIR__/scripts/audio-duck.sh"
+
 # Debug logging
 echo "[$(date)] Kokoro TTS hook triggered" >> /tmp/kokoro-hook.log
 
@@ -34,7 +39,8 @@ fi
 # Extract Claude's last response from the transcript
 # Loop through messages in reverse to find text that appears AFTER tool uses completed
 # This prevents reading text that PreToolUse hook already played
-# NOTE: Using process substitution < <(tac ...) instead of pipe to avoid subshell variable scope issues
+# NOTE: Using process substitution < <(tail -r ...) instead of pipe to avoid subshell variable scope issues
+# Using tail -r instead of tac for macOS compatibility
 seen_tool_result=0
 claude_response=""
 while IFS= read -r line; do
@@ -58,7 +64,7 @@ while IFS= read -r line; do
       fi
     fi
   fi
-done < <(tac "$transcript_path")
+done < <(tail -r "$transcript_path")
 # Truncate to 5000 characters
 claude_response="${claude_response:0:5000}"
 
@@ -120,9 +126,27 @@ if [ -n "$claude_response" ]; then
   chmod 600 "$tmpfile"
   echo "$claude_response" > "$tmpfile"
 
-  # Run kokoro-tts in a fully detached subshell
-  # The subshell pattern (command &) ensures complete detachment
-  (kokoro-tts "$tmpfile" --voice "$VOICE" --stream --model "MODEL_PATH_PLACEHOLDER/kokoro-v1.0.onnx" --voices "MODEL_PATH_PLACEHOLDER/voices-v1.0.bin" >>/tmp/kokoro-hook.log 2>&1 &)
+  # Audio ducking: lower other audio before TTS starts
+  if [ "$AUDIO_DUCK_ENABLED" = "true" ] && [ -x "$AUDIO_DUCK_SCRIPT" ]; then
+    echo "[$(date)] Ducking audio before TTS" >> /tmp/kokoro-hook.log
+    "$AUDIO_DUCK_SCRIPT" duck
+  fi
+
+  # Run kokoro-tts in background and capture PID for audio ducking restore
+  kokoro-tts "$tmpfile" --voice "$VOICE" --stream --model "MODEL_PATH_PLACEHOLDER/kokoro-v1.0.onnx" --voices "MODEL_PATH_PLACEHOLDER/voices-v1.0.bin" >>/tmp/kokoro-hook.log 2>&1 &
+  TTS_PID=$!
+  echo "[$(date)] Started kokoro-tts with PID: $TTS_PID" >> /tmp/kokoro-hook.log
+
+  # In background: wait for TTS to finish, then restore audio volume
+  if [ "$AUDIO_DUCK_ENABLED" = "true" ] && [ -x "$AUDIO_DUCK_SCRIPT" ]; then
+    (
+      while kill -0 "$TTS_PID" 2>/dev/null; do
+        sleep 0.5
+      done
+      echo "[$(date)] TTS finished, restoring audio" >> /tmp/kokoro-hook.log
+      "$AUDIO_DUCK_SCRIPT" restore
+    ) &
+  fi
 else
   echo "[$(date)] No response found" >> /tmp/kokoro-hook.log
 fi

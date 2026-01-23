@@ -22,6 +22,7 @@ All hooks are configured globally and work across all Claude Code projects. You 
 - **Multiple Voices**: Supports various voice styles including af_sky (currently configured)
 - **Markdown Stripping**: Automatically removes markdown formatting using mistune Python library for cleaner speech output
 - **Tool Output Filtering**: Only reads Claude's text, not tool outputs (e.g., directory listings)
+- **Audio Ducking** (macOS): Automatically lowers Apple Music volume while TTS speaks, then restores it when done - like Google Maps in CarPlay
 
 ## File Locations
 
@@ -491,6 +492,62 @@ The parentheses are critical for full detachment.
    ```
 
 ## Customization
+
+### Audio Ducking (macOS)
+
+Audio ducking automatically lowers Apple Music volume when TTS speaks, then restores it - like Google Maps in CarPlay.
+
+**How it works:**
+
+1. When TTS starts, Apple Music volume drops to 5% of current level
+2. A background process monitors when TTS finishes
+3. When TTS completes (or is interrupted), volume is restored
+
+**Configuration:**
+
+Set environment variables in `~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "AUDIO_DUCK_ENABLED": "true",
+    "DUCK_LEVEL": "5"
+  }
+}
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUDIO_DUCK_ENABLED` | `true` | Set to `false` to disable ducking |
+| `DUCK_LEVEL` | `5` | Target volume as percentage (lower = quieter music) |
+| `MIN_DUCK_VOLUME` | `10` | Minimum volume floor (prevents complete silence) |
+
+**Helper Script:**
+
+The ducking logic is in `scripts/audio-duck.sh`. It can be called manually:
+
+```bash
+# Duck music volume
+./scripts/audio-duck.sh duck
+
+# Restore music volume
+./scripts/audio-duck.sh restore
+
+# Duck, wait for process to finish, then restore
+./scripts/audio-duck.sh duck-and-wait <PID>
+```
+
+**Supported Apps:**
+
+Currently supports Apple Music on macOS via AppleScript. The script controls the app's internal volume (not system volume), so TTS audio remains at full volume.
+
+**Troubleshooting:**
+
+Check `/tmp/kokoro-hook.log` for ducking-related messages:
+
+```bash
+grep "audio-duck\|Duck" /tmp/kokoro-hook.log | tail -20
+```
 
 ### Change Voice
 
@@ -1347,6 +1404,47 @@ After the fix:
 1. Messages with TTS_SUMMARY → PreToolUse skips, Stop plays summary only
 2. Messages without TTS_SUMMARY → PreToolUse plays full text
 3. No repetition or duplicate playback
+
+### Enhancement: Audio Ducking (macOS)
+
+**Date:** January 2026
+
+**Feature:** Added automatic audio ducking that lowers Apple Music volume when TTS speaks, then restores it - similar to how Google Maps works in CarPlay.
+
+**Implementation:**
+
+1. **New Helper Script:** `scripts/audio-duck.sh`
+   - Controls Apple Music volume via AppleScript
+   - Supports duck, restore, and duck-and-wait operations
+   - Configurable duck level and minimum volume
+
+2. **Hook Integration:**
+   - All TTS hooks (Stop, PreToolUse, Interrupt) updated to support ducking
+   - Volume is ducked before TTS starts
+   - Background process monitors TTS and restores volume when complete
+   - Interrupt hook restores volume if TTS is killed
+
+**Configuration:**
+
+```json
+{
+  "env": {
+    "AUDIO_DUCK_ENABLED": "true",
+    "DUCK_LEVEL": "5"
+  }
+}
+```
+
+**Technical Details:**
+
+- Uses AppleScript to control Apple Music's internal volume (not system volume)
+- TTS audio remains at full volume while music is ducked
+- Original volume is saved to `/tmp/kokoro-music-volumes.txt` and restored after TTS
+- Handles edge cases: app not running, interrupted TTS, multiple rapid TTS calls
+
+**macOS Compatibility Fix:**
+
+The hook scripts originally used `tac` (GNU coreutils) to reverse file contents, which is not available on macOS. Fixed by replacing `tac` with `tail -r` (macOS native equivalent).
 
 ## References
 

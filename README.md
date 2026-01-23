@@ -9,6 +9,7 @@ Automatic TTS (text-to-speech) integration for Claude Code using the [Kokoro TTS
 - **Non-Blocking**: Audio plays in the background without interfering with your workflow
 - **Clean Speech**: Automatically strips markdown and technical formatting for clear audio
 - **TTS Summary Mode**: Optional summary extraction for concise audio feedback
+- **Audio Ducking** (macOS): Automatically lowers Apple Music volume while TTS speaks, like Google Maps in CarPlay
 
 ## What's Included
 
@@ -119,6 +120,33 @@ The default voice is `af_sky`. Changes take effect on the next Claude Code sessi
 
 See [Kokoro VOICES.md](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md) for the complete list
 
+### Audio Ducking (macOS)
+
+Audio ducking automatically lowers your music volume when TTS speaks, then restores it when done - just like Google Maps does in CarPlay.
+
+**How it works:**
+- When TTS starts, Apple Music volume drops to 5% of its current level
+- When TTS finishes, volume is restored to the original level
+- If you interrupt TTS by sending a new message, volume is also restored
+
+**Configuration via environment variables in `~/.claude/settings.json`:**
+
+```json
+{
+  "env": {
+    "AUDIO_DUCK_ENABLED": "true",
+    "DUCK_LEVEL": "5"
+  }
+}
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUDIO_DUCK_ENABLED` | `true` | Set to `false` to disable audio ducking |
+| `DUCK_LEVEL` | `5` | Percentage of original volume during TTS (lower = quieter music) |
+
+**Note:** Audio ducking currently supports Apple Music on macOS. It uses AppleScript to control the app's volume directly, so other audio (including TTS) remains at full volume.
+
 ### TTS Summary Mode
 
 The installer automatically adds TTS summary instructions to `~/.claude/CLAUDE.md`. This enables Claude to provide concise, spoken summaries at the end of each response.
@@ -220,8 +248,9 @@ claude-code-tts/
 │   ├── tts-pretooluse-hook.sh     # PreToolUse narration hook
 │   ├── tts-interrupt-hook.sh      # Interrupt handler hook
 │   └── tts-session-end-hook.sh    # Session cleanup hook
-├── scripts/                       # Python utilities
-│   └── strip_markdown.py          # Markdown stripping with mistune
+├── scripts/                       # Utilities
+│   ├── strip_markdown.py          # Markdown stripping with mistune
+│   └── audio-duck.sh              # Audio ducking helper (macOS)
 ├── tests/                         # Test suite
 │   └── test_strip_markdown.py     # Pytest tests for markdown stripping
 ├── kokoro-v1.0.onnx              # TTS model (310MB, not in git)

@@ -175,6 +175,9 @@ sed_in_place "s|__CLAUDE_TTS_PROJECT_DIR__|$SCRIPT_DIR|g" "$HOOKS_DIR/tts-stop-h
 echo "Creating TTS interrupt hook..."
 cp "$SCRIPT_DIR/hooks/tts-interrupt-hook.sh" "$HOOKS_DIR/tts-interrupt-hook.sh"
 
+# Replace placeholders with actual paths
+sed_in_place "s|__CLAUDE_TTS_PROJECT_DIR__|$SCRIPT_DIR|g" "$HOOKS_DIR/tts-interrupt-hook.sh"
+
 # Create tts-pretooluse-hook.sh by copying from hooks/ directory (single source of truth)
 echo "Creating PreToolUse TTS hook..."
 cp "$SCRIPT_DIR/hooks/tts-pretooluse-hook.sh" "$HOOKS_DIR/tts-pretooluse-hook.sh"
@@ -192,6 +195,9 @@ chmod +x "$HOOKS_DIR/tts-stop-hook.sh"
 chmod +x "$HOOKS_DIR/tts-interrupt-hook.sh"
 chmod +x "$HOOKS_DIR/tts-pretooluse-hook.sh"
 chmod +x "$HOOKS_DIR/tts-session-end-hook.sh"
+
+# Make audio ducking script executable
+chmod +x "$SCRIPT_DIR/scripts/audio-duck.sh"
 
 echo -e "${GREEN}OK${NC} Hook scripts created and made executable"
 echo ""
