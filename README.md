@@ -293,7 +293,7 @@ Contributions are welcome. For bugs, issues, or feature requests, please submit 
 
 ## Support This Project
 
-If you find this integration useful, consider supporting covering our costs:
+If you find this integration useful, consider supporting the creation of more cool projects like this one:
 [![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/orbrx)
 
 ## License
