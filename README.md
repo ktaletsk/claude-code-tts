@@ -291,6 +291,11 @@ uv run pytest tests/ -v
 Contributions are welcome. For bugs, issues, or feature requests, please submit a ticket at
 [todo.sr.ht/~cg/claude-code-tts](https://todo.sr.ht/~cg/claude-code-tts).
 
+## Support This Project
+
+If you find this integration useful, consider supporting me to build more cool things in the future:
+[![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/orbrx)
+
 ## License
 
 This project is licensed under the ISC License - see the LICENSE file for details.
