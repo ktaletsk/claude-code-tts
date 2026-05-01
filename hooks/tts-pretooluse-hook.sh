@@ -3,6 +3,7 @@
 
 # Voice configuration - can be set via KOKORO_VOICE env var in ~/.claude/settings.json
 VOICE="${KOKORO_VOICE:-af_sky}"
+LANG_CODE="${KOKORO_LANG:-en-us}"
 
 # Audio ducking configuration - lowers Apple Music volume while TTS plays (like Google Maps in CarPlay)
 # macOS only - uses AppleScript to control Apple Music's internal volume
@@ -39,14 +40,14 @@ fi
 # Check if this is the first tool_use in the current message
 # Extract the first tool_use_id from the last assistant message
 # NOTE: Using process substitution < <(tail -r ...) instead of pipe to avoid subshell variable scope issues
-# Using tail -r instead of tac for macOS compatibility
+# Cross-platform reverse: tac on Linux, tail -r on macOS
 first_tool_use_id=""
 while IFS= read -r line; do
   if echo "$line" | jq -e '.type == "assistant"' >/dev/null 2>&1; then
     first_tool_use_id=$(echo "$line" | jq -r '.message.content[] | select(.type == "tool_use") | .id' 2>/dev/null | head -1)
     break
   fi
-done < <(tail -r "$transcript_path")
+done < <(tac "$transcript_path" 2>/dev/null || tail -r "$transcript_path")
 
 echo "[$(date)] First tool_use_id in message: $first_tool_use_id" >> /tmp/kokoro-hook.log
 
@@ -62,7 +63,7 @@ echo "[$(date)] This is the first tool use - proceeding with TTS" >> /tmp/kokoro
 # Claude Code splits responses into separate messages for text and tool_use blocks
 # We need to find text from the most recent assistant text message before the first tool use
 # NOTE: Using process substitution < <(tail -r ...) instead of pipe to avoid subshell variable scope issues
-# Using tail -r instead of tac for macOS compatibility
+# Cross-platform reverse: tac on Linux, tail -r on macOS
 found_tool_use=0
 claude_response=""
 while IFS= read -r line; do
@@ -91,7 +92,7 @@ while IFS= read -r line; do
       fi
     fi
   fi
-done < <(tail -r "$transcript_path")
+done < <(tac "$transcript_path" 2>/dev/null || tail -r "$transcript_path")
 # Truncate to 5000 characters
 claude_response="${claude_response:0:5000}"
 
@@ -151,7 +152,7 @@ if [ -n "$claude_response" ] && [ ${#claude_response} -gt 10 ]; then
   fi
 
   # Run kokoro-tts in background and capture PID for audio ducking restore
-  kokoro-tts "$tmpfile" --voice "$VOICE" --stream --model "MODEL_PATH_PLACEHOLDER/kokoro-v1.0.onnx" --voices "MODEL_PATH_PLACEHOLDER/voices-v1.0.bin" >>/tmp/kokoro-hook.log 2>&1 &
+  kokoro-tts "$tmpfile" --voice "$VOICE" --lang "$LANG_CODE" --stream --model "MODEL_PATH_PLACEHOLDER/kokoro-v1.0.onnx" --voices "MODEL_PATH_PLACEHOLDER/voices-v1.0.bin" >>/tmp/kokoro-hook.log 2>&1 &
   TTS_PID=$!
   echo "[$(date)] Started kokoro-tts with PID: $TTS_PID" >> /tmp/kokoro-hook.log
 

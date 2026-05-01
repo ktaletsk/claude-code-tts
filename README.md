@@ -99,6 +99,24 @@ Set the `KOKORO_VOICE` environment variable in `~/.claude/settings.json`:
 
 The default voice is `af_sky`. Changes take effect on the next Claude Code session.
 
+#### Setting the Language
+
+When using a non-English voice, also set `KOKORO_LANG` so pronunciation matches
+the voice's language. Without it, the engine defaults to `en-us` and a French
+voice will sound anglicized.
+
+```json
+{
+  "env": {
+    "KOKORO_VOICE": "ff_siwis",
+    "KOKORO_LANG": "fr-fr"
+  }
+}
+```
+
+Supported language codes (run `kokoro-tts --help-languages` for the live list):
+`cmn`, `en-gb`, `en-us`, `fr-fr`, `it`, `ja`. Default: `en-us`.
+
 #### Available Voices (54 total)
 
 **American English:**
