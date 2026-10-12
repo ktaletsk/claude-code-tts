@@ -190,7 +190,25 @@ sed_in_place "s|__CLAUDE_TTS_PROJECT_DIR__|$SCRIPT_DIR|g" "$HOOKS_DIR/tts-pretoo
 echo "Creating SessionEnd TTS hook..."
 cp "$SCRIPT_DIR/hooks/tts-session-end-hook.sh" "$HOOKS_DIR/tts-session-end-hook.sh"
 
+# Shared player and canceller used by the hooks above (serialized playback)
+echo "Creating TTS player and cancel scripts..."
+cp "$SCRIPT_DIR/hooks/tts-play.sh" "$HOOKS_DIR/tts-play.sh"
+cp "$SCRIPT_DIR/hooks/tts-cancel.sh" "$HOOKS_DIR/tts-cancel.sh"
+sed_in_place "s|MODEL_PATH_PLACEHOLDER|$MODEL_DIR|g" "$HOOKS_DIR/tts-play.sh"
+sed_in_place "s|__CLAUDE_TTS_PROJECT_DIR__|$SCRIPT_DIR|g" "$HOOKS_DIR/tts-play.sh"
+
+# SessionStart hook injects the TTS_SUMMARY instructions into every session.
+# The context file is user-editable, so an existing one is kept.
+echo "Creating SessionStart TTS instructions hook..."
+cp "$SCRIPT_DIR/hooks/tts-session-start-hook.sh" "$HOOKS_DIR/tts-session-start-hook.sh"
+if [ ! -f "$HOOKS_DIR/tts-session-start-context.md" ]; then
+    cp "$SCRIPT_DIR/hooks/tts-session-start-context.md" "$HOOKS_DIR/tts-session-start-context.md"
+fi
+
 # Make hooks executable
+chmod +x "$HOOKS_DIR/tts-session-start-hook.sh"
+chmod +x "$HOOKS_DIR/tts-play.sh"
+chmod +x "$HOOKS_DIR/tts-cancel.sh"
 chmod +x "$HOOKS_DIR/tts-stop-hook.sh"
 chmod +x "$HOOKS_DIR/tts-interrupt-hook.sh"
 chmod +x "$HOOKS_DIR/tts-pretooluse-hook.sh"
@@ -259,6 +277,17 @@ if [ ! -f "$SETTINGS_FILE" ]; then
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/tts-session-start-hook.sh",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
@@ -269,11 +298,24 @@ else
     cp "$SETTINGS_FILE" "$SETTINGS_FILE.backup"
     echo "Backed up existing settings to $SETTINGS_FILE.backup"
 
-    # Merge hooks into existing settings and add KOKORO_VOICE if not present
-    jq '.hooks.UserPromptSubmit = [{"hooks": [{"type": "command", "command": "bash ~/.claude/hooks/tts-interrupt-hook.sh", "timeout": 5}]}] |
-        .hooks.PreToolUse = [{"hooks": [{"type": "command", "command": "bash ~/.claude/hooks/tts-pretooluse-hook.sh", "timeout": 5}]}] |
-        .hooks.Stop = [{"hooks": [{"type": "command", "command": "bash ~/.claude/hooks/tts-stop-hook.sh", "timeout": 10}]}] |
-        .hooks.SessionEnd = [{"hooks": [{"type": "command", "command": "bash ~/.claude/hooks/tts-session-end-hook.sh", "timeout": 5}]}] |
+    # Merge hooks into existing settings and add KOKORO_VOICE if not present.
+    # Each TTS hook is added without touching the user's other hooks: drop any
+    # previous copy of our command (so reinstalling is idempotent), drop
+    # entries that held only that command, then append ours.
+    jq 'def add_hook(event; cmd; timeout):
+          .hooks[event] = (
+            ((.hooks[event] // [])
+              | map(if any(.hooks[]?; .command == cmd)
+                    then .hooks |= map(select(.command != cmd))
+                    else . end)
+              | map(select((.hooks // [null]) | length > 0)))
+            + [{"hooks": [{"type": "command", "command": cmd, "timeout": timeout}]}]
+          );
+        add_hook("UserPromptSubmit"; "bash ~/.claude/hooks/tts-interrupt-hook.sh"; 5) |
+        add_hook("PreToolUse"; "bash ~/.claude/hooks/tts-pretooluse-hook.sh"; 5) |
+        add_hook("Stop"; "bash ~/.claude/hooks/tts-stop-hook.sh"; 10) |
+        add_hook("SessionEnd"; "bash ~/.claude/hooks/tts-session-end-hook.sh"; 5) |
+        add_hook("SessionStart"; "bash ~/.claude/hooks/tts-session-start-hook.sh"; 5) |
         .env.KOKORO_VOICE //= "af_sky"' \
         "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
 
@@ -282,66 +324,12 @@ fi
 
 echo ""
 
-# Configure ~/.claude/CLAUDE.md with TTS instructions
+# TTS summary instructions now come from the SessionStart hook. Older installs
+# appended them to ~/.claude/CLAUDE.md; having both duplicates the instructions.
 CLAUDE_MD="$HOME/.claude/CLAUDE.md"
-
-echo "Configuring TTS summary instructions in CLAUDE.md..."
-
-# Check if CLAUDE.md already has TTS_SUMMARY configuration
 if [ -f "$CLAUDE_MD" ] && grep -q "TTS_SUMMARY" "$CLAUDE_MD"; then
-    echo "TTS instructions already present in CLAUDE.md"
-else
-    # Create the file if it doesn't exist or append if it does
-    if [ ! -f "$CLAUDE_MD" ]; then
-        echo "Creating $CLAUDE_MD with TTS instructions..."
-        cat > "$CLAUDE_MD" << 'CLAUDE_EOF'
-# Global Claude Code Instructions
-
-## TTS Summary Instructions
-
-At the END of EVERY response, include a TTS-friendly summary in the following format:
-
-<!-- TTS_SUMMARY
-Brief, natural language summary of what you did. No URLs, no technical jargon, no code snippets.
-Just explain in 1-2 sentences what was accomplished, like you're talking to someone.
-TTS_SUMMARY -->
-
-Keep the summary conversational and avoid:
-- URLs (say "a link" instead)
-- File paths (say "the configuration file" instead)
-- Technical constants or variable names
-- Code syntax
-
-The technical response should come BEFORE this summary.
-
-## Output Format
-
-- Only output plain ASCII text in your responses.
-CLAUDE_EOF
-        echo -e "${GREEN}OK${NC} Created CLAUDE.md with TTS instructions"
-    else
-        echo "Appending TTS instructions to existing CLAUDE.md..."
-        cat >> "$CLAUDE_MD" << 'CLAUDE_EOF'
-
-## TTS Summary Instructions
-
-At the END of EVERY response, include a TTS-friendly summary in the following format:
-
-<!-- TTS_SUMMARY
-Brief, natural language summary of what you did. No URLs, no technical jargon, no code snippets.
-Just explain in 1-2 sentences what was accomplished, like you're talking to someone.
-TTS_SUMMARY -->
-
-Keep the summary conversational and avoid:
-- URLs (say "a link" instead)
-- File paths (say "the configuration file" instead)
-- Technical constants or variable names
-- Code syntax
-
-The technical response should come BEFORE this summary.
-CLAUDE_EOF
-        echo -e "${GREEN}OK${NC} Appended TTS instructions to existing CLAUDE.md"
-    fi
+    echo -e "${YELLOW}NOTE${NC} $CLAUDE_MD still contains TTS_SUMMARY instructions from an older install."
+    echo "     They are now injected by the SessionStart hook - you can remove that section."
 fi
 
 echo ""
@@ -354,6 +342,8 @@ echo "  - Stop hook (TTS playback): ~/.claude/hooks/tts-stop-hook.sh"
 echo "  - PreToolUse hook (TTS narration): ~/.claude/hooks/tts-pretooluse-hook.sh"
 echo "  - UserPromptSubmit hook (TTS interrupt): ~/.claude/hooks/tts-interrupt-hook.sh"
 echo "  - SessionEnd hook (Cleanup): ~/.claude/hooks/tts-session-end-hook.sh"
+echo "  - SessionStart hook (TTS summary instructions): ~/.claude/hooks/tts-session-start-hook.sh"
+echo "  - Shared player / cancel: ~/.claude/hooks/tts-play.sh, ~/.claude/hooks/tts-cancel.sh"
 echo ""
 echo "Model files location: $MODEL_DIR"
 echo ""

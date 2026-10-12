@@ -60,7 +60,7 @@ kokoro-tts --help
    - Download model files if not present
    - Set up TTS hooks in `~/.claude/hooks/`
    - Configure Claude Code settings
-   - Add TTS summary instructions to `~/.claude/CLAUDE.md` (preserves existing content)
+   - Install a SessionStart hook that adds the TTS summary instructions to every session
 
 3. **Start using Claude Code**:
    The TTS system will automatically activate and read responses aloud.
@@ -72,8 +72,8 @@ The system uses Claude Code's hook system to automatically:
 1. **Capture responses**: When Claude finishes responding, a Stop event triggers
 2. **Extract text**: The hook extracts Claude's text from the conversation transcript
 3. **Process for TTS**: Strips markdown formatting and technical elements
-4. **Play audio**: Streams to kokoro-tts with the af_sky voice
-5. **Handle interruptions**: Kills TTS playback when you submit a new prompt
+4. **Play audio**: Streams to kokoro-tts with the af_sky voice. Playback is serialized machine-wide, so several Claude sessions take turns instead of talking over each other
+5. **Handle interruptions**: Stops current playback and drops queued utterances when you submit a new prompt
 
 ## Configuration
 
@@ -84,6 +84,10 @@ After installation, hooks are located at:
 - `~/.claude/hooks/tts-pretooluse-hook.sh` - Pre-tool narration (PreToolUse event)
 - `~/.claude/hooks/tts-interrupt-hook.sh` - Interruption handler (UserPromptSubmit event)
 - `~/.claude/hooks/tts-session-end-hook.sh` - Session cleanup (SessionEnd event)
+- `~/.claude/hooks/tts-session-start-hook.sh` - Injects TTS summary instructions (SessionStart event)
+- `~/.claude/hooks/tts-session-start-context.md` - The injected instructions (edit to customize)
+- `~/.claude/hooks/tts-play.sh` - Shared serialized player used by the hooks
+- `~/.claude/hooks/tts-cancel.sh` - Stops playback and clears the queue
 
 ### Changing Voice
 
@@ -149,7 +153,7 @@ Audio ducking automatically lowers your music volume when TTS speaks, then resto
 
 ### TTS Summary Mode
 
-The installer automatically adds TTS summary instructions to `~/.claude/CLAUDE.md`. This enables Claude to provide concise, spoken summaries at the end of each response.
+The installer adds a SessionStart hook that injects TTS summary instructions (from `~/.claude/hooks/tts-session-start-context.md`) into every session. This enables Claude to provide concise, spoken summaries at the end of each response.
 
 The configuration tells Claude to include a special TTS-friendly summary:
 
@@ -247,7 +251,11 @@ claude-code-tts/
 │   ├── tts-stop-hook.sh           # Main TTS playback hook
 │   ├── tts-pretooluse-hook.sh     # PreToolUse narration hook
 │   ├── tts-interrupt-hook.sh      # Interrupt handler hook
-│   └── tts-session-end-hook.sh    # Session cleanup hook
+│   ├── tts-session-end-hook.sh    # Session cleanup hook
+│   ├── tts-session-start-hook.sh  # Injects TTS summary instructions
+│   ├── tts-session-start-context.md # The injected instructions
+│   ├── tts-play.sh                # Serialized player (one utterance at a time)
+│   └── tts-cancel.sh              # Stops playback, drops queued utterances
 ├── scripts/                       # Utilities
 │   ├── strip_markdown.py          # Markdown stripping with mistune
 │   └── audio-duck.sh              # Audio ducking helper (macOS)
